@@ -1,5 +1,5 @@
 import flet as ft
-from db_helper import init_database, get_all_notes, search_notes
+from db_helper import init_database, get_all_notes, search_notes, get_note_by_id, add_note, update_note, soft_delete_note, get_trash_notes, restore_note, permenantly_delete_note
 
 # Initialize database when app starts
 init_database()
@@ -18,116 +18,58 @@ def main(page: ft.Page):
     page.bgcolor = ft.Colors.WHITE
 
     # STATE VARIABLES
-    current_notes = [] # Stores the displayed notes
+    current_search = ""
+    current_note_id = None
 
-    # UI CONTROLS
-    search_box = ft.TextField(
-        label="Search Notes...",
-        hint_text="Type to search",
-        prefix_icon=ft.Icons.SEARCH,
-        on_change=lambda e: on_search_change(), # Trigger search on every keystroke
-        width=300,
-        height=50
-    )
 
-    # NOTES CONTAINER
-    notes_container = ft.Column(
-        controls=[],
-        spacing=10,
-        scroll="auto"
-    )
+    # HELPER FUNCTIONS
 
-    # EMPTY STATE - shown when no notes exist
-    empty_state = ft.Container(
-        content=ft.Column(
-            [
-                ft.Icon(
-                    icon=ft.Icons.DESCRIPTION_OUTLINED,
-                    size=80,
-                    color=ft.Colors.with_opacity(0.3, ft.Colors.BLUE_600),
-                ),
-                ft.Text(
-                    "No notes yet!",
-                    size=20,
-                    weight=ft.FontWeight.BOLD,
-                    color=ft.Colors.GREY_700,
-                ),
-                ft.Text(
-                    "Tap the + button to create your first note",
-                    size=14,
-                    color=ft.Colors.GREY_400,
-                ),
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=20,
-        ),
-        alignment=ft.Alignment.CENTER,
-        expand=True,
-    )
-
-    # MAIN CONTENT - switches between empty state and notes list
-    content_area = ft.Container(
-        content=empty_state,
-        expand=True
-    )
-
-    # EVENT HANDLERS
-    def on_search_change():
-        """
-        Called when user types in search box
-        Searches notes by title and content
-        """
-
-        query = search_box.value.strip()
-
-        if query == "":
-            # Empty search - show all notes
-            current_notes.clear()
-            current_notes.extend(get_all_notes())
-
+    def get_notes_display():
+        """Get notes to display (all or filtered by search)"""
+        if current_search.strip() == "":
+            return get_all_notes()
         else:
-            # Search query - find matching notes
-            current_notes.clear()
-            current_notes.extend(search_notes(query))
-
-        # Rebuild the notes display
-        rebuild_notes_list()
-
-    
-    def rebuild_notes_list():
-        """
-        Rebuild the notes list on screen
-        Show notes as clickable buttons
-        """
-
-        notes_container.controls.clear()
-
-        if not current_notes:
-            # No notes - show empty state
-            content_area.content = empty_state
-            page.update()
-            return
+            return search_notes(current_search)
         
-        # CREATE A BUTTON FOR each note
-        for note_id, title, content, created_date, modified_date in current_notes:
-            # NOTE PREVIEW - show first 50 chars of content
-            preview = content[:100] + "..." if len(content) > 100 else content
-            preview = preview.replace("\n", " ") # Remove line breaks for preview
+    
+    # ===== PAGE: HOME PAGE =====
 
-            # CREATE NOTE CARD (as a clickable button)
+    def build_home_page():
+        """Build the home page with notes list"""
+        notes_list = get_notes_display()
+
+        # Search box
+        search_box = ft.TextField(
+            label="Search notes...",
+            hint_text="Type to search",
+            prefix_icon=ft.Icons.SEARCH,
+            on_change=lambda e: on_search_change(e),
+            width=300,
+            height=50,
+            text_style=ft.TextStyle(font_family="Times New Roman", size=14),
+        )
+
+        # Notes Container
+        notes_column = ft.Column(
+            spacing=10,
+            scroll="auto",
+        )
+
+        # Build note cards
+        for note_id, title, content, created_date, modified_date in notes_list:
+            preview = content[:100] + "..." if len(content) > 100 else content
+            preview = preview.replace("\n", " ")
+
             note_card = ft.Card(
                 content=ft.Container(
                     content=ft.Column(
                         [
-                            # Title
                             ft.Text(
-                                title,
+                                title, 
                                 size=16,
                                 weight=ft.FontWeight.BOLD,
                                 color=ft.Colors.BLACK,
                             ),
-                            # Preview
                             ft.Text(
                                 preview,
                                 size=12,
@@ -135,7 +77,6 @@ def main(page: ft.Page):
                                 max_lines=2,
                                 overflow=ft.TextOverflow.ELLIPSIS,
                             ),
-                            # Date
                             ft.Text(
                                 f"Modified: {modified_date}",
                                 size=10,
@@ -146,42 +87,64 @@ def main(page: ft.Page):
                         spacing=8,
                     ),
                     padding=15,
-                    on_click=lambda _, nid=note_id: on_note_click(nid), # Make card clickable
+                    on_click=lambda _, nid=note_id: go_to_view(nid),
                 ),
             )
+            notes_column.controls.append(note_card)
 
-            notes_container.controls.append(note_card)
+        # Empty State
+        if not notes_list:
+            empty_state = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Icon(
+                            icon=ft.Icons.DESCRIPTION_OUTLINED,
+                            size=80,
+                            color=ft.Colors.with_opacity(0.3, ft.Colors.BLUE_600),
+                        ),
+                        ft.Text(
+                            "No notes yet",
+                            size=20,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.GREY_700,
+                        ),
+                        ft.Text(
+                            "Tap the + button to create your first note",
+                            size=14,
+                            color=ft.Colors.GREY_600,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=20,
+                ),
+                alignment=ft.Alignment.CENTER,
+                expand=True,
+            )
 
-        # Show notes list instead of empty state
-        content_area.content = notes_container
-        page.update()
-
-    
-    def on_note_click(note_id):
-        """
-        Called when user clicks on a note
-        Navigate to the view/edit page
-        """
-
-        print(f"Clicked note {note_id}")
-        # TODO: Navigate to create note view page
-
-
-    async def on_add_button_click(e):
-        """
-        Called when user clicks the + (FloatingActionButton)
-        Navigate to create note page
-        """
-
-        print("Create new note")
-        # TODO: Navigate to create note page
-
-
-    # Page Layout
-    page.add(
-        ft.Column(
-            [
-                # HEADER
+            return ft.View(
+                route="/",
+                controls=[
+                    ft.Container(
+                        content=ft.Text(
+                            "Notes",
+                            size=24,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.BLACK,
+                        ),
+                        padding=ft.Padding.only(left=20, top=20, bottom=10),
+                    ),
+                    ft.Container(
+                        content=search_box,
+                        padding=ft.Padding.only(left=10, right=10, bottom=15),
+                    ),
+                    empty_state,
+                ],
+            )
+        
+        return ft.View(
+            route="/",
+            controls=[
                 ft.Container(
                     content=ft.Text(
                         "Notes",
@@ -189,33 +152,44 @@ def main(page: ft.Page):
                         weight=ft.FontWeight.BOLD,
                         color=ft.Colors.BLACK,
                     ),
-                    padding=ft.Padding.only(left=10, right=10, bottom=15),
+                    padding=ft.Padding.only(left=20, top=20, bottom=10),
                 ),
-
-                # SEARCH BOX
                 ft.Container(
                     content=search_box,
                     padding=ft.Padding.only(left=10, right=10, bottom=15),
                 ),
-
-                # NOTES LIST / EMPTY STATE
-                content_area,
+                ft.Container(
+                    content=notes_column,
+                    expand=True,
+                    padding=ft.Padding.only(left=10, right=10, bottom=10),
+                ),
             ],
-            expand=True,
-            spacing=0,
-        ),
-    )
+        )
+    
 
-    page.floating_action_button = ft.FloatingActionButton(
-        icon=ft.Icons.ADD,
-        on_click=on_add_button_click,
-        bgcolor=ft.Colors.with_opacity(0.8, ft.Colors.BLUE_600),
-        foreground_color=ft.Colors.WHITE,
-    )
+    # ===== PAGE: CREATE NOTE PAGE =====
 
-    # INITIALIZATION
-    # Load all notes on app start
-    current_notes.extend(get_all_notes())
-    rebuild_notes_list()
+    def build_create_page():
+        """Build the create note page with markdown toolbar"""
 
-ft.run(main)
+        title_field = ft.TextField(
+            label="Note Title",
+            hint_text="Enter note title",
+            width=300,
+            height=50,
+            text_style=ft.TextStyle(font_family="Times NEw Roman", size=14),
+        )
+
+        content_field = ft.TextField(
+            label="Note Content",
+            hint_text="Start typing your note...",
+            multiline=True,
+            width=300,
+            height=300,
+            min_lines=10,
+            text_style=ft.TextStyle(font_family="Times New Roman", size=14),
+        )
+
+        # Toolbar Buttons
+
+            
